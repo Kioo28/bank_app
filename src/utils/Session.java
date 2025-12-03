@@ -81,6 +81,8 @@ public class Session {
     //  GETTER USER
     // ----------------------------
 
+
+
     public static User getCurrentUser() {
         return currentUser;
     }
@@ -101,6 +103,8 @@ public class Session {
     //  GETTER ACCOUNT
     // ----------------------------
 
+    
+
     public static Account getCurrentAccount() {
         return currentAccount;
     }
@@ -108,6 +112,11 @@ public class Session {
     // ----------------------------
     //  BALANCE HELPER
     // ----------------------------
+
+    public static void setSession(User user, Account account) {
+        currentUser = user;
+        currentAccount = account;
+    }
 
     public static String getBalance() {
         if (currentAccount != null) {

@@ -5,7 +5,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.ArrayList;
 import java.util.List;
-
 import utils.DBConnection;
 import utils.Formatter;
 
@@ -18,47 +17,34 @@ public class Account {
     protected String Type;
     protected double balance;
     protected String ownerName;
-
-    // menyimpan transaksi milik akun
     protected List<Transaction> transactions = new ArrayList<>();
 
     public Account(int accountId, int userId, String username,
                String accountNumber, String Type, double balance) {
-
-    this.accountId = accountId;
-    this.userId = userId;
-    this.username = username;
-    this.accountNumber = accountNumber;
-    this.Type = Type;
-    this.balance = balance;
-}
+        this.accountId = accountId;
+        this.userId = userId;
+        this.username = username;
+        this.accountNumber = accountNumber;
+        this.Type = Type;
+        this.balance = balance;
+    }
 
     public Account() {}
 
-    // =====================================
     // GET ACCOUNT LIST FOR USER
-    // =====================================
     public static ArrayList<Account> getUserAccounts(int userId) {
         ArrayList<Account> list = new ArrayList<>();
-
         try {
             Connection conn = DBConnection.getConnection();
-           String sql =
-            "SELECT a.*, u.username AS owner " +
-            "FROM accounts a " +
-            "JOIN users u ON a.user_id = u.id " +
-            "WHERE a.user_id = ?";
-
+            String sql = "SELECT a.*, u.username AS owner FROM accounts a " +
+                        "JOIN users u ON a.user_id = u.id WHERE a.user_id = ?";
             PreparedStatement st = conn.prepareStatement(sql);
             st.setInt(1, userId);
-
             ResultSet rs = st.executeQuery();
 
             while (rs.next()) {
-
                 Account acc;
                 if (rs.getString("type").equals("CHECKING")) {
-
                     CheckingAccount chk = new CheckingAccount();
                     chk.setOverdraftLimit(rs.getDouble("overdraft_limit"));
                     acc = chk;
@@ -72,71 +58,40 @@ public class Account {
                 acc.accountNumber = rs.getString("account_number");
                 acc.Type = rs.getString("type");
                 acc.balance = rs.getDouble("balance");
-
                 list.add(acc);
             }
-
         } catch (Exception e) {
             e.printStackTrace();
         }
-
         return list;
     }
 
-    // =====================================
     // CREATE NEW ACCOUNT
-    // =====================================
     public static boolean createAccount(int userId, String type) {
         try {
             Connection conn = DBConnection.getConnection();
-
             String sql = "INSERT INTO accounts (user_id, account_number, type, balance) VALUES (?, ?, ?, 0)";
             PreparedStatement st = conn.prepareStatement(sql);
-
             String randomNumber = String.valueOf(System.currentTimeMillis() % 100000000);
-
             st.setInt(1, userId);
             st.setString(2, Formatter.formatAccountNumber(randomNumber));
             st.setString(3, type);
-
             return st.executeUpdate() > 0;
-
         } catch (Exception e) {
             e.printStackTrace();
             return false;
         }
     }
 
-    // =====================================
     // GETTERS
-    // =====================================
+    public int getUserId() { return userId; }
+    public int getAccountId() { return accountId; }
+    public String getAccountNumber() { return accountNumber; }
+    public String getType() { return Type; }
+    public double getBalance() { return balance; }
+    public String getOwnerName() { return ownerName; }
+    public List<Transaction> getTransactions() { return transactions; }
 
-    public int getAccountId() {
-        return accountId;
-    }
-
-    public String getAccountNumber() {
-        return accountNumber;
-    }
-
-    public String getType() {
-        return Type;
-    }
-
-
-    public double getBalance() {
-        return balance;
-    }
-
-    public String getOwnerName() {
-        return ownerName;
-    }
-
-    public List<Transaction> getTransactions() {
-        return transactions;
-    }
-
-    // helper untuk menambah transaksi
     protected void addTransaction(Transaction tx) {
         transactions.add(tx);
     }
@@ -145,24 +100,18 @@ public class Account {
         this.balance = newBalance;
     }
 
-    // =====================================
     // BASIC TRANSACTIONS
-    // =====================================
-
     public void deposit(double amount) {
         if (amount <= 0) return;
         balance += amount;
-       
     }
 
     public boolean withdraw(double amount) {
         if (amount <= 0) return false;
-
         if (balance >= amount) {
             balance -= amount;
             return true;
         }
-
         return false;
     }
 
@@ -174,9 +123,7 @@ public class Account {
         return false;
     }
 
-    // =====================================
     // MONTHLY UPDATE (OVERRIDE IN SUBCLASSES)
-    // =====================================
     public void monthlyUpdate() {
         // Default: tidak ada update khusus
     }

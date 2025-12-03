@@ -9,12 +9,11 @@ public class UserDAO {
 
     /** 
      * LOGIN USER 
-     * Mengembalikan Account jika username + password valid dan user memiliki akun.
      */
     public static Account login(String username, String password) {
 
         String sql = "SELECT a.account_id, u.id AS user_id, u.username, "
-                   + "a.account_number, a.type, a.balance "
+                   + "a.account_number, a.type, a.balance, a.overdraft_limit "
                    + "FROM users u "
                    + "JOIN accounts a ON a.user_id = u.id "
                    + "WHERE u.username = ? AND u.password = ? "
@@ -26,19 +25,26 @@ public class UserDAO {
             ps.setString(1, username);
             ps.setString(2, password);
 
-            // Debug query
-            System.out.println("SQL Executed: " + ps);
-
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return new Account(
-                        rs.getInt("account_id"),
-                        rs.getInt("user_id"),
-                        rs.getString("username"),
-                        rs.getString("account_number"),
-                        rs.getString("type"),
-                        rs.getDouble("balance")
-                    );
+                    String type = rs.getString("type");
+                    int accountId = rs.getInt("account_id");
+                    int userId = rs.getInt("user_id");
+                    String uname = rs.getString("username");
+                    String accNum = rs.getString("account_number");
+                    double balance = rs.getDouble("balance");
+
+                    // Return CheckingAccount jika type CHECKING
+                    if (type.equalsIgnoreCase("CHECKING")) {
+                        CheckingAccount acc = new CheckingAccount(
+                            accountId, userId, uname, accNum, type, balance
+                        );
+                        acc.setOverdraftLimit(rs.getDouble("overdraft_limit"));
+                        return acc;
+                    }
+
+                    // Return Account biasa untuk SAVING dan BUSINESS
+                    return new Account(accountId, userId, uname, accNum, type, balance);
                 }
             }
 
@@ -50,7 +56,6 @@ public class UserDAO {
 
         return null;
     }
-
 
     /**
      * REGISTRASI USER BARU
@@ -73,5 +78,4 @@ public class UserDAO {
             return false;
         }
     }
-
 }

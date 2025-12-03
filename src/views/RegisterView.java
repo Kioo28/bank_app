@@ -6,17 +6,13 @@ import utils.DBConnection;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import models.AccountDAO;
-import models.CheckingAccount;
-import models.Account;
-
 
 public class RegisterView extends JFrame {
 
     private JTextField usernameField;
     private JPasswordField passwordField;
     private JTextField fullNameField;
-    private JComboBox<String> accountTypeCombo; // pilihan tipe akun
+    private JComboBox<String> accountTypeCombo;
 
     public RegisterView() {
         setTitle("Create Account");
@@ -61,7 +57,7 @@ public class RegisterView extends JFrame {
         accountLabel.setBounds(20, 180, 100, 25);
         panel.add(accountLabel);
 
-       accountTypeCombo = new JComboBox<>(new String[]{"SAVING", "CHECKING", "BUSINESS"});
+        accountTypeCombo = new JComboBox<>(new String[]{"SAVING", "CHECKING", "BUSINESS"});
         accountTypeCombo.setBounds(120, 180, 180, 25);
         panel.add(accountTypeCombo);
 
@@ -73,60 +69,86 @@ public class RegisterView extends JFrame {
         registerBtn.addActionListener(e -> registerUser());
         panel.add(registerBtn);
 
+        JButton backBtn = new JButton("Back to Login");
+        backBtn.setBounds(120, 270, 180, 25);
+        backBtn.setFocusPainted(false);
+        backBtn.addActionListener(e -> {
+            new LoginView().setVisible(true);
+            dispose();
+        });
+        panel.add(backBtn);
+
         add(panel);
     }
 
     private void registerUser() {
-        String fullName = fullNameField.getText();
-        String username = usernameField.getText();
-        String password = new String(passwordField.getPassword());
+        String fullName = fullNameField.getText().trim();
+        String username = usernameField.getText().trim();
+        String password = new String(passwordField.getPassword()).trim();
         String accountType = (String) accountTypeCombo.getSelectedItem();
-        String accountNumber = "ACCT-" + System.currentTimeMillis();
 
-        if (fullName.isEmpty() || username.isEmpty() || password.isEmpty() || accountType.isEmpty()) {
+        if (fullName.isEmpty() || username.isEmpty() || password.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Semua field harus diisi!");
             return;
         }
 
-        // simpan ke database
-       try (Connection conn = DBConnection.getConnection()) {
+        String accountNumber = "ACCT-" + System.currentTimeMillis();
 
-        // ================= SIMPAN USER =================
-        String sqlUser = "INSERT INTO users (username, password) VALUES (?, ?)";
-        PreparedStatement psUser = conn.prepareStatement(sqlUser, PreparedStatement.RETURN_GENERATED_KEYS);
-        psUser.setString(1, username);
-        psUser.setString(2, password);
-        psUser.executeUpdate();
+        try (Connection conn = DBConnection.getConnection()) {
 
-        // Ambil user_id baru
-        ResultSet rs = psUser.getGeneratedKeys();
-        int userId = 0;
-        if (rs.next()) {
-            userId = rs.getInt(1);
-        }
-        // BUAT AKUN BARU
-        String sqlAcc = "INSERT INTO accounts (user_id, account_number, type, balance) VALUES (?, ?, ?, ?)";
-        PreparedStatement psAcc = conn.prepareStatement(sqlAcc);
-        psAcc.setInt(1, userId);
-        psAcc.setString(2, accountNumber);
-        psAcc.setString(3, accountType);
-        psAcc.setDouble(4, 0);
-        psAcc.executeUpdate();
+            // Cek username sudah ada atau belum
+            String checkSql = "SELECT id FROM users WHERE username = ?";
+            PreparedStatement checkPs = conn.prepareStatement(checkSql);
+            checkPs.setString(1, username);
+            ResultSet checkRs = checkPs.executeQuery();
+            
+            if (checkRs.next()) {
+                JOptionPane.showMessageDialog(this, "Username sudah digunakan!");
+                return;
+            }
 
+            // Simpan user baru
+            String sqlUser = "INSERT INTO users (fullname, username, password) VALUES (?, ?, ?)";
+            PreparedStatement psUser = conn.prepareStatement(sqlUser, PreparedStatement.RETURN_GENERATED_KEYS);
+            psUser.setString(1, fullName);
+            psUser.setString(2, username);
+            psUser.setString(3, password);
+            psUser.executeUpdate();
 
-            Account newAcc;
+            // Ambil user_id yang baru dibuat
+            ResultSet rs = psUser.getGeneratedKeys();
+            int userId = 0;
+            if (rs.next()) {
+                userId = rs.getInt(1);
+            }
 
-        if (accountType.equals("CHECKING")) {
-            newAcc = new CheckingAccount(0, userId, username, accountNumber, accountType, 0);
-        } else {
-            newAcc = new Account(0, userId, username, accountNumber, accountType, 0);
-        }
+            // Buat akun untuk user
+            String sqlAcc = "INSERT INTO accounts (user_id, account_number, type, balance, overdraft_limit) " +
+                          "VALUES (?, ?, ?, ?, ?)";
+            PreparedStatement psAcc = conn.prepareStatement(sqlAcc);
+            psAcc.setInt(1, userId);
+            psAcc.setString(2, accountNumber);
+            psAcc.setString(3, accountType);
+            psAcc.setDouble(4, 0.0);
+            
+            // Set overdraft limit untuk CHECKING
+            if (accountType.equals("CHECKING")) {
+                psAcc.setDouble(5, 500000.0);
+            } else {
+                psAcc.setDouble(5, 0.0);
+            }
+            
+            psAcc.executeUpdate();
 
-        AccountDAO.createAccount(newAcc);
+            JOptionPane.showMessageDialog(this, 
+                "Registrasi berhasil!\n" +
+                "Username: " + username + "\n" +
+                "Nomor Rekening: " + accountNumber + "\n" +
+                "Tipe: " + accountType);
+            
+            new LoginView().setVisible(true);
+            dispose();
 
-
-        JOptionPane.showMessageDialog(this, "Registrasi berhasil!");
-        dispose();
         } catch (Exception ex) {
             ex.printStackTrace();
             JOptionPane.showMessageDialog(this, "Gagal registrasi: " + ex.getMessage());

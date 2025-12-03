@@ -11,12 +11,11 @@ public class TransactionDAO {
     public static List<Transaction> getHistory(int accountId) {
         List<Transaction> list = new ArrayList<>();
 
-        String sql = "SELECT t.transaction_id, t.account_id, t.transaction_type, t.amount, "
-                   + "t.description, t.transaction_date, t.status, a.account_number "
+        String sql = "SELECT t.transaction_id, t.account_id, t.type, t.amount, "
+                   + "t.description, t.created_at, t.status "
                    + "FROM transactions t "
-                   + "JOIN accounts a ON t.account_id = a.account_id "
                    + "WHERE t.account_id = ? "
-                   + "ORDER BY t.transaction_date DESC";
+                   + "ORDER BY t.created_at DESC";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -27,13 +26,13 @@ public class TransactionDAO {
                 while (rs.next()) {
                     Transaction t = new Transaction(
                         rs.getInt("account_id"),
-                        rs.getString("transaction_type"),
+                        rs.getString("type"),
                         rs.getDouble("amount"),
                         rs.getString("description")
                     );
 
                     t.setTransactionId(rs.getInt("transaction_id"));
-                    t.setTransactionDate(rs.getTimestamp("transaction_date"));
+                    t.setTransactionDate(rs.getTimestamp("created_at"));
                     t.setStatus(rs.getString("status"));
 
                     list.add(t);
@@ -47,9 +46,7 @@ public class TransactionDAO {
         return list;
     }
 
-    // ============================
     // DEPOSIT
-    // ============================
     public static boolean deposit(int accountId, double amount) {
         if (amount <= 0) return false;
 
@@ -61,12 +58,10 @@ public class TransactionDAO {
             ps.setInt(2, accountId);
             int updated = ps.executeUpdate();
             if (updated > 0) {
-                // update session
                 Session.getCurrentAccount().setBalance(
                     Session.getCurrentAccount().getBalance() + amount
                 );
-
-                insertLog(accountId, "DEPOSIT", amount, "Deposit", "SUCCESS");
+                insertLog(accountId, "DEPOSIT", amount, "Deposit ke rekening", "SUCCESS");
                 return true;
             }
 
@@ -76,9 +71,7 @@ public class TransactionDAO {
         return false;
     }
 
-    // ============================
     // WITHDRAW
-    // ============================
     public static boolean withdraw(int accountId, double amount) {
         if (amount <= 0) return false;
 
@@ -101,24 +94,29 @@ public class TransactionDAO {
 
             // Checking boleh minus sampai overdraft_limit
             if (type.equalsIgnoreCase("CHECKING")) {
-                double limit = (overdraftLimit <= 0) ? 500_000 : overdraftLimit;
+                double limit = (overdraftLimit <= 0) ? 500000 : overdraftLimit;
                 double newBalance = balance - amount;
                 if (newBalance < -limit) return false;
             }
 
-            // update saldo
+            // Business tidak boleh minus
+            if (type.equalsIgnoreCase("BUSINESS") && amount > balance) {
+                return false;
+            }
+
+            // Update saldo
             String sqlUpdate = "UPDATE accounts SET balance = balance - ? WHERE account_id = ?";
             PreparedStatement psUp = conn.prepareStatement(sqlUpdate);
             psUp.setDouble(1, amount);
             psUp.setInt(2, accountId);
             psUp.executeUpdate();
 
-            // update session
+            // Update session
             Session.getCurrentAccount().setBalance(
                 Session.getCurrentAccount().getBalance() - amount
             );
 
-            insertLog(accountId, "WITHDRAW", amount, "Withdraw", "SUCCESS");
+            insertLog(accountId, "WITHDRAW", amount, "Penarikan tunai", "SUCCESS");
             return true;
 
         } catch (Exception e) {
@@ -127,51 +125,109 @@ public class TransactionDAO {
         }
     }
 
-    // ============================
     // TRANSFER
-    // ============================
     public static boolean transfer(int fromId, int toId, double amount) {
         if (fromId == toId || amount <= 0) return false;
 
-        try (Connection conn = DBConnection.getConnection()) {
+        Connection conn = null;
+        try {
+            conn = DBConnection.getConnection();
             conn.setAutoCommit(false);
 
-            boolean withdrawSuccess = withdraw(fromId, amount);
-            if (!withdrawSuccess) {
+            // Cek saldo pengirim
+            String sqlCheck = "SELECT balance, type, overdraft_limit FROM accounts WHERE account_id = ?";
+            PreparedStatement psCheck = conn.prepareStatement(sqlCheck);
+            psCheck.setInt(1, fromId);
+            ResultSet rs = psCheck.executeQuery();
+
+            if (!rs.next()) {
                 conn.rollback();
                 return false;
             }
 
-            String sqlDeposit = "UPDATE accounts SET balance = balance + ? WHERE account_id = ?";
-            PreparedStatement ps = conn.prepareStatement(sqlDeposit);
-            ps.setDouble(1, amount);
-            ps.setInt(2, toId);
-            ps.executeUpdate();
+            double balance = rs.getDouble("balance");
+            String type = rs.getString("type");
+            double overdraftLimit = rs.getDouble("overdraft_limit");
 
-            // update session pengirim
+            // Validasi saldo
+            if (type.equalsIgnoreCase("SAVING") && amount > balance) {
+                conn.rollback();
+                return false;
+            }
+
+            if (type.equalsIgnoreCase("CHECKING")) {
+                double limit = (overdraftLimit <= 0) ? 500000 : overdraftLimit;
+                if ((balance - amount) < -limit) {
+                    conn.rollback();
+                    return false;
+                }
+            }
+
+            if (type.equalsIgnoreCase("BUSINESS") && amount > balance) {
+                conn.rollback();
+                return false;
+            }
+
+            // Kurangi saldo pengirim
+            String sqlWithdraw = "UPDATE accounts SET balance = balance - ? WHERE account_id = ?";
+            PreparedStatement psWithdraw = conn.prepareStatement(sqlWithdraw);
+            psWithdraw.setDouble(1, amount);
+            psWithdraw.setInt(2, fromId);
+            psWithdraw.executeUpdate();
+
+            // Tambah saldo penerima
+            String sqlDeposit = "UPDATE accounts SET balance = balance + ? WHERE account_id = ?";
+            PreparedStatement psDeposit = conn.prepareStatement(sqlDeposit);
+            psDeposit.setDouble(1, amount);
+            psDeposit.setInt(2, toId);
+            int updated = psDeposit.executeUpdate();
+
+            if (updated == 0) {
+                conn.rollback();
+                return false;
+            }
+
+            // Update session
             Session.getCurrentAccount().setBalance(
                 Session.getCurrentAccount().getBalance() - amount
             );
 
-            insertLog(fromId, "TRANSFER", amount, "Transfer ke akun " + toId, "SUCCESS");
+            // Log transaksi
+            insertLogWithConnection(conn, fromId, "TRANSFER", amount, 
+                                  "Transfer ke akun ID: " + toId, "SUCCESS");
+            insertLogWithConnection(conn, toId, "DEPOSIT", amount, 
+                                  "Transfer dari akun ID: " + fromId, "SUCCESS");
+
             conn.commit();
             return true;
 
         } catch (Exception e) {
             e.printStackTrace();
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+            }
             return false;
         } finally {
-            try (Connection conn = DBConnection.getConnection()) {
-                conn.setAutoCommit(true);
-            } catch (Exception ignored) {}
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
+            }
         }
     }
 
-    // ============================
     // LOG TRANSAKSI
-    // ============================
-    private static void insertLog(int accountId, String type, double amount, String description, String status) {
-        String sql = "INSERT INTO transactions (account_id, transaction_type, amount, description, status) VALUES (?, ?, ?, ?, ?)";
+    private static void insertLog(int accountId, String type, double amount, 
+                                 String description, String status) {
+        String sql = "INSERT INTO transactions (account_id, type, amount, description, status) " +
+                    "VALUES (?, ?, ?, ?, ?)";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
@@ -181,6 +237,57 @@ public class TransactionDAO {
             ps.setString(4, description);
             ps.setString(5, status);
             ps.executeUpdate();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void insertLogWithConnection(Connection conn, int accountId, 
+                                               String type, double amount, 
+                                               String description, String status) {
+        String sql = "INSERT INTO transactions (account_id, type, amount, description, status) " +
+                    "VALUES (?, ?, ?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, accountId);
+            ps.setString(2, type);
+            ps.setDouble(3, amount);
+            ps.setString(4, description);
+            ps.setString(5, status);
+            ps.executeUpdate();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    // MONTHLY UPDATE - Jalankan update bulanan untuk semua akun
+    public static void runMonthlyUpdate() {
+        try (Connection conn = DBConnection.getConnection()) {
+            
+            // Update bunga untuk SAVING account
+            String sqlSaving = "UPDATE accounts SET balance = balance * 1.01 " +
+                             "WHERE type = 'SAVING'";
+            conn.prepareStatement(sqlSaving).executeUpdate();
+
+            // Log bunga saving
+            String sqlLogSaving = "INSERT INTO transactions (account_id, type, amount, description, status) " +
+                                "SELECT account_id, 'INTEREST', balance * 0.01, " +
+                                "'Bunga bulanan 1%', 'SUCCESS' FROM accounts WHERE type = 'SAVING'";
+            conn.prepareStatement(sqlLogSaving).executeUpdate();
+
+            // Biaya overdraft untuk CHECKING dengan saldo minus
+            String sqlCheckingFee = "UPDATE accounts SET balance = balance - 10000 " +
+                                  "WHERE type = 'CHECKING' AND balance < 0";
+            conn.prepareStatement(sqlCheckingFee).executeUpdate();
+
+            // Log biaya overdraft
+            String sqlLogChecking = "INSERT INTO transactions (account_id, type, amount, description, status) " +
+                                  "SELECT account_id, 'WITHDRAW', 10000, " +
+                                  "'Biaya overdraft bulanan', 'SUCCESS' FROM accounts " +
+                                  "WHERE type = 'CHECKING' AND balance < 0";
+            conn.prepareStatement(sqlLogChecking).executeUpdate();
+
+            System.out.println("Monthly update berhasil dijalankan!");
 
         } catch (Exception e) {
             e.printStackTrace();

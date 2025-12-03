@@ -2,7 +2,7 @@ package models;
 
 public class SavingAccount extends Account {
 
-    private double interestRate = 0.02; // 2%
+    private double interestRate = 0.01; // 1% per bulan
 
     public SavingAccount(int accountId, int userId, String username,
                String accountNumber, String accountType, double balance) {
@@ -10,16 +10,23 @@ public class SavingAccount extends Account {
     }
 
     @Override
-public void monthlyUpdate() {
-    double interest = balance * 0.01;  // 1% / bulan
-    balance += interest;
+    public void monthlyUpdate() {
+        double interest = balance * interestRate;
+        balance += interest;
 
-    addTransaction(new Transaction(
-        accountId,
-        "INTEREST",
-        interest,
-        "Monthly interest added"
-    ));
-}
+        addTransaction(new Transaction(
+            accountId,
+            "INTEREST",
+            interest,
+            "Bunga bulanan " + (interestRate * 100) + "%"
+        ));
+    }
 
+    public double getInterestRate() {
+        return interestRate;
+    }
+
+    public void setInterestRate(double interestRate) {
+        this.interestRate = interestRate;
+    }
 }

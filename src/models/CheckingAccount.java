@@ -17,19 +17,37 @@ public class CheckingAccount extends Account {
     public boolean withdraw(double amount) {
         if (amount <= 0) return false;
 
-        // cek apakah melewati overdraft
+        // Cek apakah melewati overdraft
         double newBalance = balance - amount;
 
         if (newBalance < -overdraftLimit) {
             return false;
         }
 
-        // hanya ubah balance di memory
         this.balance = newBalance;
-
-        return true; // pencatatan transaksi dilakukan di TransactionView
+        return true;
     }
 
-    public double getOverdraftLimit() { return overdraftLimit; }
-    public void setOverdraftLimit(double overdraftLimit) { this.overdraftLimit = overdraftLimit; }
+    @Override
+    public void monthlyUpdate() {
+        // Checking account bisa dikenakan biaya bulanan jika saldo minus
+        if (balance < 0) {
+            double fee = 10000; // Biaya overdraft Rp 10.000
+            balance -= fee;
+            addTransaction(new Transaction(
+                accountId,
+                "WITHDRAW",
+                fee,
+                "Biaya overdraft bulanan"
+            ));
+        }
+    }
+
+    public double getOverdraftLimit() { 
+        return overdraftLimit; 
+    }
+    
+    public void setOverdraftLimit(double overdraftLimit) { 
+        this.overdraftLimit = overdraftLimit; 
+    }
 }

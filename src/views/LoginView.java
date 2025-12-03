@@ -4,9 +4,10 @@ import javax.swing.*;
 import java.awt.*;
 import utils.RoundedButton;
 import models.Account;
+import models.User;
 import models.UserDAO;
-import utils.Session;
 import models.AccountDAO;
+import utils.Session;
 
 public class LoginView extends JFrame {
 
@@ -51,9 +52,6 @@ public class LoginView extends JFrame {
 
         loginButton.addActionListener(e -> login());
 
-        // ================================
-        //   TOMBOL CREATE ACCOUNT
-        // ================================
         JButton registerButton = new JButton("Create Account");
         registerButton.setBounds(100, 140, 165, 30);
         registerButton.setBackground(new Color(30, 130, 76));
@@ -67,26 +65,39 @@ public class LoginView extends JFrame {
             this.dispose();
         });
 
-        // Tambahkan panel ke frame
+        // Enter key untuk login
+        passwordField.addActionListener(e -> login());
+
         add(panel);
     }
 
-   private void login() {
-    String u = usernameField.getText();
-    String p = new String(passwordField.getPassword());
+    private void login() {
+        String username = usernameField.getText().trim();
+        String password = new String(passwordField.getPassword()).trim();
 
-    Account account = UserDAO.login(u, p);
-    if (account != null) {
+        if (username.isEmpty() || password.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Username dan password harus diisi!");
+            return;
+        }
 
-        Account realAcc = AccountDAO.getAccountById(account.getAccountId());
-        Session.setCurrentAccount(realAcc);
+        // Login menggunakan UserDAO
+        Account account = UserDAO.login(username, password);
+        
+        if (account != null) {
+            // Buat objek User untuk session
+            User user = new User(account.userId, username, username, password);
+            Session.setCurrentUser(user);
+            
+            // Set account yang login ke session
+            Account realAcc = AccountDAO.getAccountById(account.getAccountId());
+            Session.setCurrentAccount(realAcc);
 
-        JOptionPane.showMessageDialog(this, "Login berhasil!");
-        new DashboardView().setVisible(true);
-        this.dispose();
-    } else {
-        JOptionPane.showMessageDialog(this, "Username atau password salah");
+            JOptionPane.showMessageDialog(this, "Login berhasil!\nSelamat datang, " + username);
+            new DashboardView().setVisible(true);
+            this.dispose();
+        } else {
+            JOptionPane.showMessageDialog(this, 
+                "Login gagal!\nUsername atau password salah,\natau Anda belum memiliki akun.");
+        }
     }
-    }
-
 }
