@@ -23,7 +23,7 @@ public class User {
     public static boolean register(String fullname, String username, String password) {
         try {
             Connection conn = DBConnection.getConnection();
-            String sql = "INSERT INTO users(fullname, username, password) VALUES (?, ?, ?)";
+            String sql = "INSERT INTO users(full_name, username, password) VALUES (?, ?, ?)";
             PreparedStatement st = conn.prepareStatement(sql);
             st.setString(1, fullname);
             st.setString(2, username);
@@ -46,8 +46,8 @@ public class User {
 
             if (rs.next()) {
                 return new User(
-                    rs.getInt("id"),
-                    rs.getString("fullname"),
+                    rs.getInt("user_id"),
+                    rs.getString("full_name"),
                     rs.getString("username"),
                     rs.getString("password")
                 );

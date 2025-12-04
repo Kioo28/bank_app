@@ -57,7 +57,7 @@ public class RegisterView extends JFrame {
         accountLabel.setBounds(20, 180, 100, 25);
         panel.add(accountLabel);
 
-        accountTypeCombo = new JComboBox<>(new String[]{"SAVING", "CHECKING", "BUSINESS"});
+        accountTypeCombo = new JComboBox<>(new String[]{"SAVINGS", "CHECKING", "BUSINESS"});
         accountTypeCombo.setBounds(120, 180, 180, 25);
         panel.add(accountTypeCombo);
 
@@ -92,12 +92,12 @@ public class RegisterView extends JFrame {
             return;
         }
 
-        String accountNumber = "ACCT-" + System.currentTimeMillis();
+        String accountNumber = String.format("%08d", System.currentTimeMillis() % 100000000);
 
         try (Connection conn = DBConnection.getConnection()) {
 
             // Cek username sudah ada atau belum
-            String checkSql = "SELECT id FROM users WHERE username = ?";
+            String checkSql = "SELECT user_id FROM users WHERE username = ?";
             PreparedStatement checkPs = conn.prepareStatement(checkSql);
             checkPs.setString(1, username);
             ResultSet checkRs = checkPs.executeQuery();
@@ -108,7 +108,7 @@ public class RegisterView extends JFrame {
             }
 
             // Simpan user baru
-            String sqlUser = "INSERT INTO users (fullname, username, password) VALUES (?, ?, ?)";
+            String sqlUser = "INSERT INTO users (full_name, username, password) VALUES (?, ?, ?)";
             PreparedStatement psUser = conn.prepareStatement(sqlUser, PreparedStatement.RETURN_GENERATED_KEYS);
             psUser.setString(1, fullName);
             psUser.setString(2, username);
@@ -123,22 +123,55 @@ public class RegisterView extends JFrame {
             }
 
             // Buat akun untuk user
-            String sqlAcc = "INSERT INTO accounts (user_id, account_number, type, balance, overdraft_limit) " +
-                          "VALUES (?, ?, ?, ?, ?)";
-            PreparedStatement psAcc = conn.prepareStatement(sqlAcc);
+            String sqlAcc = "INSERT INTO accounts (user_id, account_number, account_type, balance) " +
+                          "VALUES (?, ?, ?, ?)";
+            PreparedStatement psAcc = conn.prepareStatement(sqlAcc, PreparedStatement.RETURN_GENERATED_KEYS);
             psAcc.setInt(1, userId);
             psAcc.setString(2, accountNumber);
             psAcc.setString(3, accountType);
             psAcc.setDouble(4, 0.0);
             
-            // Set overdraft limit untuk CHECKING
-            if (accountType.equals("CHECKING")) {
-                psAcc.setDouble(5, 500000.0);
-            } else {
-                psAcc.setDouble(5, 0.0);
+            psAcc.executeUpdate();
+
+            // Ambil account_id yang baru dibuat
+            ResultSet rsAcc = psAcc.getGeneratedKeys();
+            int accountId = 0;
+            if (rsAcc.next()) {
+                accountId = rsAcc.getInt(1);
             }
             
-            psAcc.executeUpdate();
+            // Jika CHECKING, buat entry di checking_accounts
+            if (accountType.equals("CHECKING")) {
+                String sqlChecking = "INSERT INTO checking_accounts (account_id, overdraft_limit, monthly_fee) " +
+                                   "VALUES (?, ?, ?)";
+                PreparedStatement psChecking = conn.prepareStatement(sqlChecking);
+                psChecking.setInt(1, accountId);
+                psChecking.setDouble(2, 500000.0);
+                psChecking.setDouble(3, 5000.0);
+                psChecking.executeUpdate();
+            }
+            
+            // Jika SAVINGS, buat entry di savings_accounts
+            if (accountType.equals("SAVINGS")) {
+                String sqlSavings = "INSERT INTO savings_accounts (account_id, interest_rate, minimum_balance) " +
+                                  "VALUES (?, ?, ?)";
+                PreparedStatement psSavings = conn.prepareStatement(sqlSavings);
+                psSavings.setInt(1, accountId);
+                psSavings.setDouble(2, 2.5);
+                psSavings.setDouble(3, 1000.0);
+                psSavings.executeUpdate();
+            }
+            
+            // Jika BUSINESS, buat entry di business_accounts
+            if (accountType.equals("BUSINESS")) {
+                String sqlBusiness = "INSERT INTO business_accounts (account_id, business_name, transaction_limit) " +
+                                   "VALUES (?, ?, ?)";
+                PreparedStatement psBusiness = conn.prepareStatement(sqlBusiness);
+                psBusiness.setInt(1, accountId);
+                psBusiness.setString(2, fullName + " Business");
+                psBusiness.setDouble(3, 100000000.0);
+                psBusiness.executeUpdate();
+            }
 
             JOptionPane.showMessageDialog(this, 
                 "Registrasi berhasil!\n" +

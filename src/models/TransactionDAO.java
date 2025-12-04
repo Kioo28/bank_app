@@ -11,11 +11,11 @@ public class TransactionDAO {
     public static List<Transaction> getHistory(int accountId) {
         List<Transaction> list = new ArrayList<>();
 
-        String sql = "SELECT t.transaction_id, t.account_id, t.type, t.amount, "
-                   + "t.description, t.created_at, t.status "
+        String sql = "SELECT t.transaction_id, t.account_id, t.transaction_type, t.amount, "
+                   + "t.description, t.transaction_date, t.status "
                    + "FROM transactions t "
                    + "WHERE t.account_id = ? "
-                   + "ORDER BY t.created_at DESC";
+                   + "ORDER BY t.transaction_date DESC";
 
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -26,13 +26,13 @@ public class TransactionDAO {
                 while (rs.next()) {
                     Transaction t = new Transaction(
                         rs.getInt("account_id"),
-                        rs.getString("type"),
+                        rs.getString("transaction_type"),
                         rs.getDouble("amount"),
                         rs.getString("description")
                     );
 
                     t.setTransactionId(rs.getInt("transaction_id"));
-                    t.setTransactionDate(rs.getTimestamp("created_at"));
+                    t.setTransactionDate(rs.getTimestamp("transaction_date"));
                     t.setStatus(rs.getString("status"));
 
                     list.add(t);
@@ -58,9 +58,7 @@ public class TransactionDAO {
             ps.setInt(2, accountId);
             int updated = ps.executeUpdate();
             if (updated > 0) {
-                Session.getCurrentAccount().setBalance(
-                    Session.getCurrentAccount().getBalance() + amount
-                );
+                Session.refreshBalance();
                 insertLog(accountId, "DEPOSIT", amount, "Deposit ke rekening", "SUCCESS");
                 return true;
             }
@@ -76,7 +74,10 @@ public class TransactionDAO {
         if (amount <= 0) return false;
 
         try (Connection conn = DBConnection.getConnection()) {
-            String sqlAcc = "SELECT balance, type, overdraft_limit FROM accounts WHERE account_id = ?";
+            String sqlAcc = "SELECT a.balance, a.account_type, ca.overdraft_limit "
+                          + "FROM accounts a "
+                          + "LEFT JOIN checking_accounts ca ON ca.account_id = a.account_id "
+                          + "WHERE a.account_id = ?";
             PreparedStatement psAcc = conn.prepareStatement(sqlAcc);
             psAcc.setInt(1, accountId);
             ResultSet rs = psAcc.executeQuery();
@@ -84,22 +85,23 @@ public class TransactionDAO {
             if (!rs.next()) return false;
 
             double balance = rs.getDouble("balance");
-            String type = rs.getString("type");
+            String type = rs.getString("account_type");
             double overdraftLimit = rs.getDouble("overdraft_limit");
+            if (rs.wasNull()) overdraftLimit = 0;
 
-            // Saving tidak boleh minus
-            if (type.equalsIgnoreCase("SAVING") && amount > balance) {
+            // SAVINGS tidak boleh minus
+            if (type.equalsIgnoreCase("SAVINGS") && amount > balance) {
                 return false;
             }
 
-            // Checking boleh minus sampai overdraft_limit
+            // CHECKING boleh minus sampai overdraft_limit
             if (type.equalsIgnoreCase("CHECKING")) {
                 double limit = (overdraftLimit <= 0) ? 500000 : overdraftLimit;
                 double newBalance = balance - amount;
                 if (newBalance < -limit) return false;
             }
 
-            // Business tidak boleh minus
+            // BUSINESS tidak boleh minus
             if (type.equalsIgnoreCase("BUSINESS") && amount > balance) {
                 return false;
             }
@@ -112,11 +114,9 @@ public class TransactionDAO {
             psUp.executeUpdate();
 
             // Update session
-            Session.getCurrentAccount().setBalance(
-                Session.getCurrentAccount().getBalance() - amount
-            );
+            Session.refreshBalance();
 
-            insertLog(accountId, "WITHDRAW", amount, "Penarikan tunai", "SUCCESS");
+            insertLog(accountId, "WITHDRAWAL", amount, "Penarikan tunai", "SUCCESS");
             return true;
 
         } catch (Exception e) {
@@ -135,7 +135,10 @@ public class TransactionDAO {
             conn.setAutoCommit(false);
 
             // Cek saldo pengirim
-            String sqlCheck = "SELECT balance, type, overdraft_limit FROM accounts WHERE account_id = ?";
+            String sqlCheck = "SELECT a.balance, a.account_type, ca.overdraft_limit "
+                            + "FROM accounts a "
+                            + "LEFT JOIN checking_accounts ca ON ca.account_id = a.account_id "
+                            + "WHERE a.account_id = ?";
             PreparedStatement psCheck = conn.prepareStatement(sqlCheck);
             psCheck.setInt(1, fromId);
             ResultSet rs = psCheck.executeQuery();
@@ -146,11 +149,12 @@ public class TransactionDAO {
             }
 
             double balance = rs.getDouble("balance");
-            String type = rs.getString("type");
+            String type = rs.getString("account_type");
             double overdraftLimit = rs.getDouble("overdraft_limit");
+            if (rs.wasNull()) overdraftLimit = 0;
 
             // Validasi saldo
-            if (type.equalsIgnoreCase("SAVING") && amount > balance) {
+            if (type.equalsIgnoreCase("SAVINGS") && amount > balance) {
                 conn.rollback();
                 return false;
             }
@@ -188,9 +192,7 @@ public class TransactionDAO {
             }
 
             // Update session
-            Session.getCurrentAccount().setBalance(
-                Session.getCurrentAccount().getBalance() - amount
-            );
+            Session.refreshBalance();
 
             // Log transaksi
             insertLogWithConnection(conn, fromId, "TRANSFER", amount, 
@@ -226,7 +228,7 @@ public class TransactionDAO {
     // LOG TRANSAKSI
     private static void insertLog(int accountId, String type, double amount, 
                                  String description, String status) {
-        String sql = "INSERT INTO transactions (account_id, type, amount, description, status) " +
+        String sql = "INSERT INTO transactions (account_id, transaction_type, amount, description, status) " +
                     "VALUES (?, ?, ?, ?, ?)";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -246,7 +248,7 @@ public class TransactionDAO {
     private static void insertLogWithConnection(Connection conn, int accountId, 
                                                String type, double amount, 
                                                String description, String status) {
-        String sql = "INSERT INTO transactions (account_id, type, amount, description, status) " +
+        String sql = "INSERT INTO transactions (account_id, transaction_type, amount, description, status) " +
                     "VALUES (?, ?, ?, ?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, accountId);
@@ -264,27 +266,27 @@ public class TransactionDAO {
     public static void runMonthlyUpdate() {
         try (Connection conn = DBConnection.getConnection()) {
             
-            // Update bunga untuk SAVING account
+            // Update bunga untuk SAVINGS account
             String sqlSaving = "UPDATE accounts SET balance = balance * 1.01 " +
-                             "WHERE type = 'SAVING'";
+                             "WHERE account_type = 'SAVINGS'";
             conn.prepareStatement(sqlSaving).executeUpdate();
 
             // Log bunga saving
-            String sqlLogSaving = "INSERT INTO transactions (account_id, type, amount, description, status) " +
-                                "SELECT account_id, 'INTEREST', balance * 0.01, " +
-                                "'Bunga bulanan 1%', 'SUCCESS' FROM accounts WHERE type = 'SAVING'";
+            String sqlLogSaving = "INSERT INTO transactions (account_id, transaction_type, amount, description, status) " +
+                                "SELECT account_id, 'DEPOSIT', balance * 0.01, " +
+                                "'Bunga bulanan 1%', 'SUCCESS' FROM accounts WHERE account_type = 'SAVINGS'";
             conn.prepareStatement(sqlLogSaving).executeUpdate();
 
             // Biaya overdraft untuk CHECKING dengan saldo minus
             String sqlCheckingFee = "UPDATE accounts SET balance = balance - 10000 " +
-                                  "WHERE type = 'CHECKING' AND balance < 0";
+                                  "WHERE account_type = 'CHECKING' AND balance < 0";
             conn.prepareStatement(sqlCheckingFee).executeUpdate();
 
             // Log biaya overdraft
-            String sqlLogChecking = "INSERT INTO transactions (account_id, type, amount, description, status) " +
-                                  "SELECT account_id, 'WITHDRAW', 10000, " +
+            String sqlLogChecking = "INSERT INTO transactions (account_id, transaction_type, amount, description, status) " +
+                                  "SELECT account_id, 'WITHDRAWAL', 10000, " +
                                   "'Biaya overdraft bulanan', 'SUCCESS' FROM accounts " +
-                                  "WHERE type = 'CHECKING' AND balance < 0";
+                                  "WHERE account_type = 'CHECKING' AND balance < 0";
             conn.prepareStatement(sqlLogChecking).executeUpdate();
 
             System.out.println("Monthly update berhasil dijalankan!");

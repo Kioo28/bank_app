@@ -6,24 +6,38 @@ import utils.DBConnection;
 public class AccountDAO {
 
     public static boolean createAccount(Account account) {
-        String sql = "INSERT INTO accounts (user_id, account_number, type, balance, overdraft_limit) " +
-                    "VALUES (?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO accounts (user_id, account_number, account_type, balance) " +
+                    "VALUES (?, ?, ?, ?)";
         try (Connection conn = DBConnection.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+             PreparedStatement pstmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS)) {
 
             pstmt.setInt(1, account.userId);
             pstmt.setString(2, account.accountNumber);
             pstmt.setString(3, account.Type);
             pstmt.setDouble(4, account.balance);
-            
-            double overdraftLimit = 0;
-            if (account instanceof CheckingAccount) {
-                overdraftLimit = ((CheckingAccount) account).getOverdraftLimit();
-            }
-            pstmt.setDouble(6, overdraftLimit);
 
             int affectedRows = pstmt.executeUpdate();
-            return affectedRows > 0;
+            
+            if (affectedRows > 0) {
+                ResultSet rs = pstmt.getGeneratedKeys();
+                if (rs.next()) {
+                    int accountId = rs.getInt(1);
+                    
+                    // Create entry in specific account type table
+                    if (account instanceof CheckingAccount) {
+                        CheckingAccount chk = (CheckingAccount) account;
+                        PreparedStatement psChk = conn.prepareStatement(
+                            "INSERT INTO checking_accounts (account_id, overdraft_limit, monthly_fee) VALUES (?, ?, ?)"
+                        );
+                        psChk.setInt(1, accountId);
+                        psChk.setDouble(2, chk.getOverdraftLimit());
+                        psChk.setDouble(3, 5000.0);
+                        psChk.executeUpdate();
+                    }
+                }
+                return true;
+            }
+            return false;
 
         } catch (SQLException e) {
             e.printStackTrace();
@@ -32,7 +46,9 @@ public class AccountDAO {
     }
 
     public static Account getAccountByUserId(int userId) {
-        String sql = "SELECT * FROM accounts WHERE user_id = ? LIMIT 1";
+        String sql = "SELECT a.*, u.username FROM accounts a " +
+                    "JOIN users u ON a.user_id = u.user_id " +
+                    "WHERE a.user_id = ? LIMIT 1";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
@@ -40,7 +56,7 @@ public class AccountDAO {
             ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
-                String type = rs.getString("type");
+                String type = rs.getString("account_type");
                 int accountId = rs.getInt("account_id");
                 int uid = rs.getInt("user_id");
                 String username = rs.getString("username");
@@ -48,11 +64,20 @@ public class AccountDAO {
                 double balance = rs.getDouble("balance");
 
                 if (type.equalsIgnoreCase("CHECKING")) {
-                    double limit = rs.getDouble("overdraft_limit");
+                    // Get overdraft limit from checking_accounts table
+                    PreparedStatement psChk = conn.prepareStatement(
+                        "SELECT overdraft_limit FROM checking_accounts WHERE account_id = ?"
+                    );
+                    psChk.setInt(1, accountId);
+                    ResultSet rsChk = psChk.executeQuery();
+                    
                     CheckingAccount acc = new CheckingAccount(
                             accountId, uid, username, accNum, type, balance
                     );
-                    acc.setOverdraftLimit(limit);
+                    
+                    if (rsChk.next()) {
+                        acc.setOverdraftLimit(rsChk.getDouble("overdraft_limit"));
+                    }
                     return acc;
                 }
 
@@ -66,7 +91,9 @@ public class AccountDAO {
     }
 
     public static Account getAccountById(int accountId) {
-        String sql = "SELECT * FROM accounts WHERE account_id = ?";
+        String sql = "SELECT a.*, u.username FROM accounts a " +
+                    "JOIN users u ON a.user_id = u.user_id " +
+                    "WHERE a.account_id = ?";
         try (Connection conn = DBConnection.getConnection();
              PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
@@ -74,22 +101,32 @@ public class AccountDAO {
             ResultSet rs = pstmt.executeQuery();
 
             if (rs.next()) {
-                String type = rs.getString("type");
+                String type = rs.getString("account_type");
+                int aid = rs.getInt("account_id");
                 int uid = rs.getInt("user_id");
                 String username = rs.getString("username");
                 String accNum = rs.getString("account_number");
                 double balance = rs.getDouble("balance");
 
                 if (type.equalsIgnoreCase("CHECKING")) {
-                    double limit = rs.getDouble("overdraft_limit");
-                    CheckingAccount acc = new CheckingAccount(
-                            accountId, uid, username, accNum, type, balance
+                    // Get overdraft limit from checking_accounts table
+                    PreparedStatement psChk = conn.prepareStatement(
+                        "SELECT overdraft_limit FROM checking_accounts WHERE account_id = ?"
                     );
-                    acc.setOverdraftLimit(limit);
+                    psChk.setInt(1, aid);
+                    ResultSet rsChk = psChk.executeQuery();
+                    
+                    CheckingAccount acc = new CheckingAccount(
+                            aid, uid, username, accNum, type, balance
+                    );
+                    
+                    if (rsChk.next()) {
+                        acc.setOverdraftLimit(rsChk.getDouble("overdraft_limit"));
+                    }
                     return acc;
                 }
 
-                return new Account(accountId, uid, username, accNum, type, balance);
+                return new Account(aid, uid, username, accNum, type, balance);
             }
 
         } catch (SQLException e) {

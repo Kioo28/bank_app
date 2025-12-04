@@ -6,7 +6,6 @@ import utils.RoundedButton;
 import models.Account;
 import models.User;
 import models.UserDAO;
-import models.AccountDAO;
 import utils.Session;
 
 public class LoginView extends JFrame {
@@ -80,19 +79,26 @@ public class LoginView extends JFrame {
             return;
         }
 
-        // Login menggunakan UserDAO
+        // Login menggunakan UserDAO yang return Account
         Account account = UserDAO.login(username, password);
         
         if (account != null) {
             // Buat objek User untuk session
-            User user = new User(account.userId, username, username, password);
-            Session.setCurrentUser(user);
+            User user = new User(account.getUserId(), username, username, password);
             
-            // Set account yang login ke session
-            Account realAcc = AccountDAO.getAccountById(account.getAccountId());
-            Session.setCurrentAccount(realAcc);
+            // Set session dengan user dan account
+            Session.setCurrentUser(user);
+            Session.setCurrentAccount(account);
 
-            JOptionPane.showMessageDialog(this, "Login berhasil!\nSelamat datang, " + username);
+            System.out.println("Login berhasil!");
+            System.out.println("User ID: " + user.getId());
+            System.out.println("Account ID: " + account.getAccountId());
+            System.out.println("Account Type: " + account.getType());
+            System.out.println("Balance: " + account.getBalance());
+
+            JOptionPane.showMessageDialog(this, 
+                "Login berhasil!\nSelamat datang, " + username);
+            
             new DashboardView().setVisible(true);
             this.dispose();
         } else {

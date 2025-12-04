@@ -16,6 +16,10 @@ public class ChooseAccountView extends JFrame {
         setLocationRelativeTo(null);
         setLayout(null);
 
+        JLabel lblTitle = new JLabel("Pilih Akun:");
+        lblTitle.setBounds(50, 20, 200, 25);
+        add(lblTitle);
+
         cmb = new JComboBox<>();
         cmb.setBounds(50, 50, 200, 25);
         add(cmb);
@@ -30,7 +34,12 @@ public class ChooseAccountView extends JFrame {
     }
 
     private void loadAccounts() {
-        list = Account.getUserAccounts(Session.currentUser.userId);
+        list = Account.getUserAccounts(Session.getCurrentUserId());
+
+        if (list.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Anda belum memiliki akun. Silakan buat akun terlebih dahulu.");
+            return;
+        }
 
         for (Account acc : list) {
             cmb.addItem(acc.getType().toUpperCase() + " - " + acc.getAccountNumber());
@@ -38,10 +47,16 @@ public class ChooseAccountView extends JFrame {
     }
 
     private void enterDashboard() {
-        int index = cmb.getSelectedIndex();
-        Session.setAccount(list.get(index));
+        if (list.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Tidak ada akun yang tersedia!");
+            return;
+        }
 
-        new DashboardView().setVisible(true);
-        this.dispose();
+        int index = cmb.getSelectedIndex();
+        if (index >= 0 && index < list.size()) {
+            Session.setCurrentAccount(list.get(index));
+            new DashboardView().setVisible(true);
+            this.dispose();
+        }
     }
 }

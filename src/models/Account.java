@@ -37,16 +37,30 @@ public class Account {
         try {
             Connection conn = DBConnection.getConnection();
             String sql = "SELECT a.*, u.username AS owner FROM accounts a " +
-                        "JOIN users u ON a.user_id = u.id WHERE a.user_id = ?";
+                        "JOIN users u ON a.user_id = u.user_id WHERE a.user_id = ?";
             PreparedStatement st = conn.prepareStatement(sql);
             st.setInt(1, userId);
             ResultSet rs = st.executeQuery();
 
             while (rs.next()) {
                 Account acc;
-                if (rs.getString("type").equals("CHECKING")) {
+                String type = rs.getString("account_type");
+                
+                if (type.equals("CHECKING")) {
                     CheckingAccount chk = new CheckingAccount();
-                    chk.setOverdraftLimit(rs.getDouble("overdraft_limit"));
+                    // Load overdraft limit dari checking_accounts table
+                    try {
+                        PreparedStatement ps = conn.prepareStatement(
+                            "SELECT overdraft_limit FROM checking_accounts WHERE account_id = ?"
+                        );
+                        ps.setInt(1, rs.getInt("account_id"));
+                        ResultSet rsChk = ps.executeQuery();
+                        if (rsChk.next()) {
+                            chk.setOverdraftLimit(rsChk.getDouble("overdraft_limit"));
+                        }
+                    } catch (Exception e) {
+                        e.printStackTrace();
+                    }
                     acc = chk;
                 } else {
                     acc = new Account();
@@ -56,7 +70,7 @@ public class Account {
                 acc.userId = rs.getInt("user_id");
                 acc.username = rs.getString("owner");
                 acc.accountNumber = rs.getString("account_number");
-                acc.Type = rs.getString("type");
+                acc.Type = type;
                 acc.balance = rs.getDouble("balance");
                 list.add(acc);
             }
@@ -70,13 +84,50 @@ public class Account {
     public static boolean createAccount(int userId, String type) {
         try {
             Connection conn = DBConnection.getConnection();
-            String sql = "INSERT INTO accounts (user_id, account_number, type, balance) VALUES (?, ?, ?, 0)";
-            PreparedStatement st = conn.prepareStatement(sql);
+            String sql = "INSERT INTO accounts (user_id, account_number, account_type, balance) VALUES (?, ?, ?, 0)";
+            PreparedStatement st = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS);
             String randomNumber = String.valueOf(System.currentTimeMillis() % 100000000);
             st.setInt(1, userId);
             st.setString(2, Formatter.formatAccountNumber(randomNumber));
             st.setString(3, type);
-            return st.executeUpdate() > 0;
+            
+            int result = st.executeUpdate();
+            
+            if (result > 0) {
+                ResultSet rs = st.getGeneratedKeys();
+                if (rs.next()) {
+                    int accountId = rs.getInt(1);
+                    
+                    // Create entry in specific account type table
+                    if (type.equalsIgnoreCase("CHECKING")) {
+                        PreparedStatement psChk = conn.prepareStatement(
+                            "INSERT INTO checking_accounts (account_id, overdraft_limit, monthly_fee) VALUES (?, ?, ?)"
+                        );
+                        psChk.setInt(1, accountId);
+                        psChk.setDouble(2, 500000.0);
+                        psChk.setDouble(3, 5000.0);
+                        psChk.executeUpdate();
+                    } else if (type.equalsIgnoreCase("SAVINGS")) {
+                        PreparedStatement psSav = conn.prepareStatement(
+                            "INSERT INTO savings_accounts (account_id, interest_rate, minimum_balance) VALUES (?, ?, ?)"
+                        );
+                        psSav.setInt(1, accountId);
+                        psSav.setDouble(2, 2.5);
+                        psSav.setDouble(3, 1000.0);
+                        psSav.executeUpdate();
+                    } else if (type.equalsIgnoreCase("BUSINESS")) {
+                        PreparedStatement psBus = conn.prepareStatement(
+                            "INSERT INTO business_accounts (account_id, business_name, transaction_limit) VALUES (?, ?, ?)"
+                        );
+                        psBus.setInt(1, accountId);
+                        psBus.setString(2, "Business Account");
+                        psBus.setDouble(3, 100000000.0);
+                        psBus.executeUpdate();
+                    }
+                }
+                return true;
+            }
+            return false;
         } catch (Exception e) {
             e.printStackTrace();
             return false;

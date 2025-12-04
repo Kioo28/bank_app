@@ -61,7 +61,7 @@ public class ReportView extends JFrame {
         panel.add(cmbAccount);
 
         panel.add(new JLabel("Jenis:"));
-        cmbType = new JComboBox<>(new String[]{"Semua", "DEPOSIT", "WITHDRAW", "TRANSFER", "INTEREST"});
+        cmbType = new JComboBox<>(new String[]{"Semua", "DEPOSIT", "WITHDRAWAL", "TRANSFER"});
         cmbType.setPreferredSize(new Dimension(150, 30));
         panel.add(cmbType);
 
@@ -204,10 +204,10 @@ public class ReportView extends JFrame {
 
             // Filter berdasarkan type
             if (!selectedType.equals("Semua")) {
-                q.append(" AND t.type = '").append(selectedType).append("'");
+                q.append(" AND t.transaction_type = '").append(selectedType).append("'");
             }
 
-            q.append(" ORDER BY t.created_at DESC");
+            q.append(" ORDER BY t.transaction_date DESC");
 
             PreparedStatement st = conn.prepareStatement(q.toString());
             st.setInt(1, Session.getCurrentUserId());
@@ -217,9 +217,9 @@ public class ReportView extends JFrame {
 
                 Object[] row = {
                         rs.getInt("transaction_id"),
-                        Formatter.formatDateTime(rs.getTimestamp("created_at")),
+                        Formatter.formatDateTime(rs.getTimestamp("transaction_date")),
                         rs.getString("account_number"),
-                        rs.getString("type"),
+                        rs.getString("transaction_type"),
                         Formatter.formatCurrency(rs.getDouble("amount")),
                         rs.getString("description")
                 };
@@ -228,10 +228,10 @@ public class ReportView extends JFrame {
                 total++;
 
                 // COUNT SUMMARY
-                String type = rs.getString("type");
-                if (type.equals("DEPOSIT") || type.equals("INTEREST"))
+                String type = rs.getString("transaction_type");
+                if (type.equals("DEPOSIT"))
                     dep += rs.getDouble("amount");
-                if (type.equals("WITHDRAW") || type.equals("TRANSFER"))
+                if (type.equals("WITHDRAWAL") || type.equals("TRANSFER"))
                     wd += rs.getDouble("amount");
             }
 

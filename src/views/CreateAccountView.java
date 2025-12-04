@@ -14,7 +14,11 @@ public class CreateAccountView extends JFrame {
         setLocationRelativeTo(null);
         setLayout(null);
 
-        cmb = new JComboBox<>(new String[]{"saving", "checking", "business"});
+        JLabel lblTitle = new JLabel("Pilih Tipe Akun:");
+        lblTitle.setBounds(50, 20, 200, 25);
+        add(lblTitle);
+
+        cmb = new JComboBox<>(new String[]{"SAVINGS", "CHECKING", "BUSINESS"});
         cmb.setBounds(50, 40, 200, 25);
         add(cmb);
 
@@ -28,7 +32,7 @@ public class CreateAccountView extends JFrame {
     private void create() {
         String type = cmb.getSelectedItem().toString();
 
-        if (Account.createAccount(Session.currentUser.userId, type)) {
+        if (Account.createAccount(Session.getCurrentUserId(), type)) {
             JOptionPane.showMessageDialog(this, "Rekening berhasil dibuat!");
             new ChooseAccountView().setVisible(true);
             this.dispose();
